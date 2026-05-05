@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="de" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voice AI</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@300;400;500&family=Vazirmatn:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{--accent:#7aa3f5;--text-primary:#e8eaf2;--text-secondary:#7a7f9a;--bg:#080810;--surface:rgba(255,255,255,0.04);--border:rgba(255,255,255,0.07)}
+  body{background:var(--bg);min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;overflow:hidden}
+  body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(91,141,238,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(91,141,238,.03) 1px,transparent 1px);background-size:48px 48px;pointer-events:none}
+  body::after{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 70% 70% at 50% 50%,transparent 30%,#080810 100%);pointer-events:none}
+
+  .container{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;width:100%;max-width:520px;padding:2rem}
+  .topbar{display:flex;align-items:center;justify-content:space-between;width:100%;margin-bottom:3.5rem;gap:10px}
+  .brand{font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:var(--text-secondary);white-space:nowrap}
+
+  /* Provider Toggle */
+  .provider-toggle{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:40px;padding:3px;gap:2px}
+  .prov-btn{background:none;border:none;color:var(--text-secondary);font-size:11px;letter-spacing:.08em;font-family:inherit;padding:5px 12px;border-radius:40px;cursor:pointer;transition:all .25s;white-space:nowrap}
+  .prov-btn.active{background:rgba(91,141,238,.18);color:var(--accent);border:1px solid rgba(91,141,238,.3)}
+  .prov-btn.el-active{background:rgba(93,202,165,.12);color:#5dcaa5;border:1px solid rgba(93,202,165,.3)}
+
+  /* Settings gear button */
+  .gear-btn{background:var(--surface);border:1px solid var(--border);border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-secondary);transition:all .25s;flex-shrink:0}
+  .gear-btn:hover{border-color:rgba(91,141,238,.3);color:var(--accent)}
+  .gear-btn.open{color:var(--accent);border-color:rgba(91,141,238,.3);background:rgba(91,141,238,.08)}
+
+  /* Settings Drawer */
+  .drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;opacity:0;pointer-events:none;transition:opacity .3s}
+  .drawer-overlay.open{opacity:1;pointer-events:all}
+  .drawer{position:fixed;top:0;right:-360px;width:340px;height:100vh;background:#0d0d1a;border-left:1px solid var(--border);z-index:101;transition:right .3s cubic-bezier(.4,0,.2,1);overflow-y:auto;padding:1.5rem}
+  .drawer.open{right:0}
+  .drawer-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
+  .drawer-title{font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-secondary)}
+  .drawer-close{background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:20px;padding:4px;line-height:1}
+  .drawer-close:hover{color:var(--text-primary)}
+
+  /* Settings sections */
+  .settings-section{margin-bottom:1.5rem}
+  .section-label{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--text-secondary);opacity:.6;margin-bottom:.7rem}
+  .setting-row{margin-bottom:1rem}
+  .setting-name{font-size:12px;color:var(--text-secondary);margin-bottom:.35rem;display:flex;justify-content:space-between;align-items:center}
+  .setting-name span{color:var(--accent);font-size:11px;font-variant-numeric:tabular-nums}
+  .setting-row select, .setting-row input[type=range]{width:100%}
+  select.styled{background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:13px;padding:8px 12px;font-family:inherit;outline:none;cursor:pointer;width:100%}
+  select.styled:focus{border-color:rgba(91,141,238,.4)}
+  input[type=range]{-webkit-appearance:none;height:4px;background:var(--border);border-radius:2px;outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--accent);cursor:pointer;transition:transform .15s}
+  input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.15)}
+  .provider-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;font-size:12px;margin-bottom:1rem}
+  .provider-badge.oai{background:rgba(91,141,238,.1);border:1px solid rgba(91,141,238,.2);color:var(--accent)}
+  .provider-badge.el{background:rgba(93,202,165,.08);border:1px solid rgba(93,202,165,.2);color:#5dcaa5}
+  .info-row{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:11px;color:var(--text-secondary);margin-bottom:.75rem;line-height:1.6}
+  .info-row strong{color:var(--text-primary);display:block;margin-bottom:2px;font-size:12px}
+  .dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:4px}
+  .dot.green{background:#5dcaa5}
+  .dot.blue{background:var(--accent)}
+  .divider{height:1px;background:var(--border);margin:1.2rem 0}
+
+  /* Orb & main UI — same as original */
+  .orb-wrapper{position:relative;width:260px;height:260px;display:flex;align-items:center;justify-content:center;margin-bottom:2.5rem}
+  .ring{position:absolute;border-radius:50%;border:1px solid rgba(91,141,238,.12);animation:ringPulse 3s ease-out infinite;opacity:0;pointer-events:none}
+  .ring:nth-child(1){width:200px;height:200px;animation-delay:0s}
+  .ring:nth-child(2){width:240px;height:240px;animation-delay:.9s}
+  .ring:nth-child(3){width:280px;height:280px;animation-delay:1.8s}
+  @keyframes ringPulse{0%{opacity:0;transform:scale(.85)}20%{opacity:.5}100%{opacity:0;transform:scale(1.12)}}
+  body.listening .ring{animation-duration:1.4s;border-color:rgba(91,141,238,.35)}
+  body.speaking .ring{animation-duration:1s;border-color:rgba(122,163,245,.4)}
+  body.el-mode .ring{border-color:rgba(93,202,165,.2)}
+  body.el-mode.listening .ring{border-color:rgba(93,202,165,.5)}
+  body.el-mode.speaking .ring{border-color:rgba(93,202,165,.6)}
+  #visualizer{position:absolute;inset:-50px;width:calc(100% + 100px);height:calc(100% + 100px);pointer-events:none}
+  .orb{position:relative;z-index:2;width:140px;height:140px;border-radius:50%;border:none;cursor:pointer;background:radial-gradient(circle at 35% 35%,#7aa3f5,#3d6fd4 50%,#1a3d8f);box-shadow:0 0 0 1px rgba(91,141,238,.3),0 0 40px rgba(91,141,238,.25),0 0 80px rgba(91,141,238,.12),inset 0 1px 0 rgba(255,255,255,.15);transition:transform .3s cubic-bezier(.34,1.56,.64,1),box-shadow .3s,background .4s;display:flex;align-items:center;justify-content:center;outline:none}
+  .orb:hover{transform:scale(1.06)}
+  body.el-mode .orb{background:radial-gradient(circle at 35% 35%,#5dcaa5,#1d9e75 50%,#0a5a40);box-shadow:0 0 0 1px rgba(93,202,165,.3),0 0 40px rgba(93,202,165,.2),0 0 80px rgba(93,202,165,.1),inset 0 1px 0 rgba(255,255,255,.15)}
+  body.connecting .orb{animation:orbPulse 1s ease-in-out infinite}
+  body.listening .orb{animation:orbListen 1.8s ease-in-out infinite}
+  body.speaking .orb{animation:orbSpeak .8s ease-in-out infinite}
+  @keyframes orbPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+  @keyframes orbListen{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+  @keyframes orbSpeak{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+  .orb-icon{width:36px;height:36px;transition:opacity .3s}
+  .orb-stop{position:absolute;width:20px;height:20px;background:rgba(255,255,255,.9);border-radius:4px;opacity:0;transition:opacity .3s}
+  body.listening .orb-stop,body.speaking .orb-stop{opacity:.85}
+  body.listening .orb-icon,body.speaking .orb-icon{opacity:0}
+  .orb-spinner{position:absolute;width:140px;height:140px;border-radius:50%;border:2px solid transparent;border-top-color:rgba(255,255,255,.5);animation:spin 1s linear infinite;opacity:0;transition:opacity .3s}
+  body.connecting .orb-spinner{opacity:1}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .status-wrap{height:28px;display:flex;align-items:center;justify-content:center;margin-bottom:2rem}
+  .status{font-size:13px;color:var(--text-secondary);letter-spacing:.08em}
+  .response-box{width:100%;height:160px;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:1.1rem 1.4rem;transition:border-color .3s,opacity .3s;opacity:.4;margin-bottom:1rem;overflow:hidden}
+  .response-box.has-text{opacity:1;border-color:rgba(122,163,245,.2)}
+  .response-box::-webkit-scrollbar{display:none}
+  .response-label{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--text-secondary);margin-bottom:6px}
+  .response-text{color:var(--text-primary);font-size:15px;line-height:1.7;min-height:24px}
+  .error-msg{font-size:12px;color:#f87171;letter-spacing:.05em;margin-top:.5rem;min-height:18px;text-align:center}
+  .hint{font-size:12px;color:var(--text-secondary);letter-spacing:.06em;opacity:.5;margin-top:.5rem}
+  body.fa{font-family:'Vazirmatn',sans-serif}
+
+  /* Language switcher */
+  .lang-switch{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:40px;padding:3px;gap:2px}
+  .lang-btn{background:none;border:none;color:var(--text-secondary);font-size:11px;letter-spacing:.1em;font-family:inherit;padding:5px 10px;border-radius:40px;cursor:pointer;transition:all .25s}
+  .lang-btn.active{background:rgba(91,141,238,.18);color:var(--accent);border:1px solid rgba(91,141,238,.3)}
+
+  /* Provider indicator under orb */
+  .provider-indicator{font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.45;margin-top:-1.8rem;margin-bottom:1.8rem;display:flex;align-items:center;gap:5px}
+
+  /* ── Contact Form ── */
+  .contact-form-backdrop{
+    display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;
+    -webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);
+    align-items:center;justify-content:center;padding:1.5rem;
+  }
+  .contact-form-backdrop.visible{display:flex}
+  .contact-form-modal{
+    background:#0e0e1e;border:1px solid rgba(93,202,165,.35);border-radius:20px;
+    padding:24px 22px 20px;width:100%;max-width:340px;
+    box-shadow:0 20px 60px rgba(0,0,0,.6);
+    animation:formSlideUp .35s cubic-bezier(.34,1.56,.64,1);
+  }
+  @keyframes formSlideUp{from{opacity:0;transform:translateY(24px) scale(.96)}to{opacity:1;transform:none}}
+  .contact-form-label{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#5dcaa5;margin-bottom:16px}
+  .contact-form-input{
+    width:100%;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);
+    border-radius:12px;padding:13px 16px;color:#e8eaf2;font-size:16px;
+    font-family:inherit;outline:none;margin-bottom:10px;transition:border-color .25s;-webkit-appearance:none;
+  }
+  .contact-form-input:focus{border-color:rgba(93,202,165,.5)}
+  .contact-form-input.error{border-color:#f87171}
+  .contact-form-btn{
+    width:100%;background:linear-gradient(135deg,#1a7f5a,#5dcaa5);border:none;
+    border-radius:12px;padding:13px;color:#fff;font-size:14px;font-family:inherit;
+    cursor:pointer;margin-bottom:8px;min-height:48px;-webkit-appearance:none;
+  }
+  .contact-form-btn:hover{opacity:.88}
+  .contact-cancel-btn{
+    width:100%;background:transparent;border:1px solid rgba(255,255,255,.1);
+    border-radius:12px;padding:12px;color:var(--text-secondary);font-size:13px;
+    font-family:inherit;cursor:pointer;min-height:44px;-webkit-appearance:none;
+  }
+  .contact-cancel-btn:hover{background:rgba(255,255,255,.05);color:var(--text-primary)}
+</style>
+</head>
+<body class="idle el-mode">
+
+<!-- Settings Drawer -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-header">
+    <span class="drawer-title">Einstellungen</span>
+    <button class="drawer-close" onclick="closeDrawer()">×</button>
+  </div>
+
+  <!-- Provider selection -->
+  <div class="settings-section">
+    <div class="section-label">Provider</div>
+    <div class="provider-toggle" style="width:100%;border-radius:12px;padding:4px">
+      <button class="prov-btn" id="provOAI" style="flex:1;border-radius:8px" onclick="setProvider('openai')">
+        OpenAI Realtime
+      </button>
+      <button class="prov-btn el-active" id="provEL" style="flex:1;border-radius:8px" onclick="setProvider('elevenlabs')">
+        ElevenLabs
+      </button>
+    </div>
+  </div>
+
+  <!-- OpenAI Settings -->
+  <div id="oaiSettings" style="display:none">
+    <div class="provider-badge oai">
+      <span class="dot blue"></span> OpenAI gpt-4o-realtime
+    </div>
+
+    <div class="settings-section">
+      <div class="section-label">Stimme (Voice)</div>
+      <div class="setting-row">
+        <select class="styled" id="voiceSelect" onchange="settings.oai.voice=this.value">
+          <option value="alloy">Alloy — neutral</option>
+          <option value="echo">Echo — männlich</option>
+          <option value="shimmer">Shimmer — weiblich</option>
+          <option value="ash">Ash — ruhig</option>
+          <option value="ballad">Ballad — warm</option>
+          <option value="coral">Coral — freundlich</option>
+          <option value="sage">Sage — professionell</option>
+          <option value="verse">Verse — dynamisch</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="section-label">VAD — Spracherkennung</div>
+      <div class="setting-row">
+        <div class="setting-name">Threshold (Empfindlichkeit) <span id="threshVal">0.80</span></div>
+        <input type="range" min="0.3" max="0.95" step="0.05" value="0.80"
+          oninput="settings.oai.threshold=+this.value;document.getElementById('threshVal').textContent=this.value">
+      </div>
+      <div class="setting-row">
+        <div class="setting-name">Pause-Dauer (ms) <span id="silenceVal">600</span></div>
+        <input type="range" min="200" max="1200" step="50" value="600"
+          oninput="settings.oai.silence=+this.value;document.getElementById('silenceVal').textContent=this.value">
+      </div>
+      <div class="info-row">
+        <strong>Threshold:</strong>
+        Niedriger = sensibler (erkennt leises Sprechen). Höher = weniger Störgeräusche.<br>
+        <strong>Pause:</strong> Wie lang gewartet wird, bevor die Antwort startet.
+      </div>
+    </div>
+  </div>
+
+  <!-- ElevenLabs Settings -->
+  <div id="elSettings">
+    <!-- Single Agent -->
+<div class="settings-section">
+  <div class="section-label">ElevenLabs Agent</div>
+  <div style="background:rgba(93,202,165,.12);border:1px solid rgba(93,202,165,.35);
+    border-radius:10px;padding:10px 14px;color:#5dcaa5;font-size:12px;">
+    ✦ Future Media + Flow
+    <div style="font-size:10px;opacity:.6;margin-top:3px;font-family:monospace;">agent_9001kqq67q9bfm1bkybvap126qxw</div>
+  </div>
+</div>
+<div class="divider"></div>
+
+    <div class="provider-badge el">
+      <span class="dot green"></span> ElevenLabs Conversational AI
+    </div>
+
+    <div class="settings-section">
+      <div class="section-label">Agent Info</div>
+      <div class="info-row">
+        <strong>Agent ID</strong>
+        <span id="elAgentId" style="font-family:monospace;font-size:11px;opacity:.7">laden...</span>
+      </div>
+      <div class="info-row">
+        <strong>API Key</strong>
+        <span id="elKeyStatus">prüfen...</span>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="section-label">Stimme (Voice)</div>
+      <div class="setting-row">
+        <select class="styled" id="elVoice" onchange="settings.el.voiceId=this.value">
+          <option value="">Agent Standard (Dashboard)</option>
+          <option value="onwK4e9ZLuTAKqWW03F9">Daniel — Deutsch, männlich</option>
+          <option value="MF3mGyEYCl7XYWbV9V6O">Elli — Deutsch, weiblich</option>
+          <option value="pNInz6obpgDQGcFmaJgB">Adam — neutral, multilingual</option>
+          <option value="21m00Tcm4TlvDq8ikWAM">Rachel — weiblich, multilingual</option>
+          <option value="EXAVITQu4vr4xnSDxMaL">Bella — weiblich, warm</option>
+          <option value="ErXwobaYiN019PkySvjV">Antoni — männlich, ruhig</option>
+          <option value="VR6AewLTigWG4xSOukaG">Arnold — männlich, kräftig</option>
+        </select>
+      </div>
+      <div class="info-row">
+        Für Schweizerdeutsch: Daniel oder Elli empfohlen. Das System gibt dem Agent automatisch den Hinweis, Schweizer Ausdrücke zu verwenden.
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="section-label">Modell</div>
+      <div class="setting-row">
+        <select class="styled" id="elModel" onchange="settings.el.model=this.value">
+          <option value="eleven_multilingual_v2">Multilingual v2 — beste Qualität</option>
+          <option value="eleven_turbo_v2_5">Turbo v2.5 — schnell + multilingual</option>
+          <option value="eleven_flash_v2_5">Flash v2.5 — schnellste</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="section-label">Latenz-Optimierung</div>
+      <div class="setting-row">
+        <select class="styled" id="elLatency" onchange="settings.el.latency=this.value">
+          <option value="0">Standard (beste Qualität)</option>
+          <option value="1">Optimiert (ausgewogen)</option>
+          <option value="2">Niedrig (schneller)</option>
+          <option value="3">Minimal (schnellste)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Main UI -->
+<div class="container">
+  <div class="topbar">
+    <span class="brand">Voice AI</span>
+
+    <div class="provider-toggle" id="topProvToggle">
+      <button class="prov-btn" id="topOAI" onclick="setProvider('openai')">OpenAI</button>
+      <button class="prov-btn el-active" id="topEL" onclick="setProvider('elevenlabs')">ElevenLabs</button>
+    </div>
+
+    <div class="lang-switch">
+      <button class="lang-btn active" data-lang="de" onclick="setLang('de')">DE</button>
+      <button class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
+      <button class="lang-btn" data-lang="fa" onclick="setLang('fa')">FA</button>
+    </div>
+
+    <button class="gear-btn" id="gearBtn" onclick="toggleDrawer()" title="Settings">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="orb-wrapper">
+    <div class="ring"></div>
+    <div class="ring"></div>
+    <div class="ring"></div>
+    <canvas id="visualizer"></canvas>
+    <button class="orb" id="orbBtn" onclick="toggleSession()">
+      <svg class="orb-icon" viewBox="0 0 36 36" fill="none">
+        <rect x="14" y="4" width="8" height="18" rx="4" fill="rgba(255,255,255,0.95)"/>
+        <path d="M8 18c0 5.523 4.477 10 10 10s10-4.477 10-10" stroke="rgba(255,255,255,0.95)" stroke-width="2.2" stroke-linecap="round"/>
+        <line x1="18" y1="28" x2="18" y2="33" stroke="rgba(255,255,255,0.95)" stroke-width="2.2" stroke-linecap="round"/>
+        <line x1="13" y1="33" x2="23" y2="33" stroke="rgba(255,255,255,0.95)" stroke-width="2.2" stroke-linecap="round"/>
+      </svg>
+      <div class="orb-stop"></div>
+      <div class="orb-spinner"></div>
+    </button>
+  </div>
+
+  <div class="provider-indicator" id="providerIndicator">
+    <span class="dot green"></span> ElevenLabs ConvAI
+  </div>
+
+  <div class="status-wrap">
+    <span class="status" id="statusLabel">Klicken zum Sprechen</span>
+  </div>
+  <p id="subText" style="font-size:12px;color:#4a5070;letter-spacing:0.05em;text-align:center;margin-top:-1.2rem;margin-bottom:1.5rem;">
+    Sie können in über 50 Sprachen mit mir sprechen
+  </p>
+
+  <div class="response-box" id="aiBox">
+    <div class="response-label">AI</div>
+    <div class="response-text"><span id="aiText"></span></div>
+  </div>
+
+  <div class="error-msg" id="errorMsg"></div>
+
+  <div style="width:100%;display:flex;gap:8px;margin-bottom:1rem;">
+    <input type="text" id="textInput" placeholder="Nachricht eingeben..."
+      style="flex:1;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:40px;padding:10px 18px;color:#e8eaf2;font-size:13px;font-family:inherit;outline:none;transition:border-color .25s;"
+      onkeydown="if(event.key==='Enter') sendText()"
+      onfocus="this.style.borderColor='rgba(91,141,238,.4)'"
+      onblur="this.style.borderColor='rgba(255,255,255,.07)'" />
+    <button onclick="sendText()"
+      style="background:rgba(91,141,238,.18);border:1px solid rgba(91,141,238,.3);border-radius:40px;padding:10px 18px;color:#7aa3f5;font-size:13px;font-family:inherit;cursor:pointer;transition:all .25s;white-space:nowrap;"
+      onmouseover="this.style.background='rgba(91,141,238,.3)'"
+      onmouseout="this.style.background='rgba(91,141,238,.18)'">Senden</button>
+  </div>
+  <span class="hint" id="hintText">Encrypted connection</span>
+</div>
+
+<!-- ── Contact Form ── -->
+<div class="contact-form-backdrop" id="contactFormBackdrop" onclick="handleBackdropClick(event)">
+  <div class="contact-form-modal" id="contactFormModal">
+    <div class="contact-form-label">✦ E-Mail oder Telefon</div>
+    <input type="email" id="contactEmail" class="contact-form-input"
+      placeholder="deine@email.com" inputmode="email" autocomplete="email"
+      autocorrect="off" autocapitalize="none"
+      onkeydown="if(event.key==='Enter') submitContactForm()"/>
+    <input type="tel" id="contactPhone" class="contact-form-input"
+      placeholder="+41 78 000 00 00 (optional)" inputmode="tel" autocomplete="tel"
+      onkeydown="if(event.key==='Enter') submitContactForm()"/>
+    <button class="contact-form-btn" onclick="submitContactForm()">Absenden ➜</button>
+  </div>
+</div>
+
+<audio id="aiAudio" autoplay playsinline></audio>
+
+<script type="module">
+// ─── Import ElevenLabs Client ──────────────────────────────────────────────────
+import { Conversation } from 'https://cdn.jsdelivr.net/npm/@11labs/client@latest/+esm';
+window._ELConversation = Conversation;
+</script>
+
+<script>
+// ─── State ─────────────────────────────────────────────────────────────────────
+let provider = 'elevenlabs'; // 'openai' | 'elevenlabs'
+let state    = 'idle';
+let lang     = 'de';
+
+// Settings per provider
+const settings = {
+  oai: { voice: 'alloy', threshold: 0.80, silence: 600 },
+  el:  { latency: 0, voiceId: '', model: 'eleven_multilingual_v2' },
+};
+
+// Language-specific prompts for ElevenLabs overrides
+const elLangPrompts = {
+  de: 'Antworte IMMER auf Deutsch. Du bist in der Schweiz tätig. Verwende einen natürlichen Schweizer Stil (nicht österreichisch, nicht bundesdeutsch). Verwende gelegentlich typisch schweizerische Ausdrücke wie "merci", "grüezi", "en Guete".',
+  en: 'ALWAYS respond in English. Use a natural, friendly tone.',
+  fa: 'همیشه به فارسی پاسخ بده. از لحن گرم و دوستانه استفاده کن.',
+};
+const elFirstMessages = {
+  de: 'Grüezi! Ich bin Maya von Future Media. Wie kann ich Ihnen helfen?',
+  en: 'Hello! I\'m Maya from Future Media. How can I help you?',
+  fa: 'سلام! من مایا از Future Media هستم. چطور می‌تونم کمک کنم؟',
+};
+
+// OpenAI state
+let pc = null, dc = null, localStream = null;
+let audioCtx = null, analyser = null, dataArray = new Uint8Array(64);
+// Base instructions for live language updates
+const oaiBaseInstructions = `You are Maya, the friendly AI voice assistant of Future Media. Answer ONLY based on your knowledge about Future Media. YOUR TONE: Warm, confident, short clear answers.`;
+
+// ElevenLabs state
+let elConversation = null;
+
+// ─── Strings ───────────────────────────────────────────────────────────────────
+const strings = {
+  de: { idle:'Klicken zum Sprechen', connecting:'Verbinde ...', listening:'Ich höre zu', speaking:'Antwortet',  hint:'Verschlüsselte Verbindung', placeholder:'Nachricht eingeben...',  send:'Senden', sub:'Sie können in über 50 Sprachen mit mir sprechen' },
+  en: { idle:'Click to Speak',       connecting:'Connecting ...', listening:'Listening',    speaking:'Responding', hint:'Encrypted connection',    placeholder:'Type a message ...',       send:'Send',   sub:'You can speak with me in over 50 languages' },
+  fa: { idle:'برای صحبت کلیک کنید', connecting:'در حال اتصال ...', listening:'در حال گوش دادن', speaking:'در حال پاسخ', hint:'اتصال رمزگذاری شده', placeholder:'پیام بنویسید...', send:'ارسال', sub:'می توانید به بیش از ۵۰ زبان با من صحبت کنید' },
+};
+
+function setLang(l) {
+  lang = l;
+  document.documentElement.lang = l;
+  document.documentElement.dir  = l === 'fa' ? 'rtl' : 'ltr';
+  document.body.classList.toggle('fa', l === 'fa');
+  document.querySelectorAll('.lang-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === l));
+  // Update static text
+  const s = strings[l];
+  document.getElementById('statusLabel').textContent       = s[state] || s.idle;
+  document.getElementById('hintText').textContent          = s.hint;
+  document.getElementById('textInput').placeholder         = s.placeholder;
+  document.querySelector('[onclick="sendText()"]').textContent = s.send;
+  document.getElementById('subText').textContent           = s.sub;
+  // If OpenAI session active, update instructions live
+  if (provider === 'openai' && dc && dc.readyState === 'open') {
+    const langPrefix = {
+      de: 'Antworte IMMER auf Deutsch. Verwende einen natürlichen Schweizer Stil.',
+      en: 'ALWAYS respond in English.',
+      fa: 'همیشه به فارسی پاسخ بده.',
+    };
+    dc.send(JSON.stringify({
+      type: 'session.update',
+      session: { instructions: (langPrefix[l] || langPrefix.de) + '\n\n' + oaiBaseInstructions }
+    }));
+  }
+}
+window.setLang = setLang;
+
+// ─── Provider switching ────────────────────────────────────────────────────────
+function setProvider(p) {
+  if (state !== 'idle') { showError('Bitte erst Gespräch beenden'); return; }
+  provider = p;
+
+  const isEL = p === 'elevenlabs';
+
+  // topbar buttons
+  document.getElementById('topOAI').className = 'prov-btn' + (!isEL ? ' active' : '');
+  document.getElementById('topEL').className  = 'prov-btn' + (isEL  ? ' el-active' : '');
+
+  // drawer buttons
+  document.getElementById('provOAI').className = 'prov-btn' + (!isEL ? ' active' : '');
+  document.getElementById('provEL').className  = 'prov-btn' + (isEL  ? ' el-active' : '');
+
+  // show/hide settings panels
+  document.getElementById('oaiSettings').style.display = isEL ? 'none' : 'block';
+  document.getElementById('elSettings').style.display  = isEL ? 'block' : 'none';
+
+  // body class for orb color
+  document.body.classList.toggle('el-mode', isEL);
+
+  // indicator
+  const ind = document.getElementById('providerIndicator');
+  ind.innerHTML = isEL
+    ? '<span class="dot green"></span> ElevenLabs ConvAI'
+    : '<span class="dot blue"></span> OpenAI Realtime';
+
+  if (isEL) loadELConfig();
+}
+window.setProvider = setProvider;
+
+async function loadELConfig() {
+  try {
+    const d = await fetch('/el-config').then(r => r.json());
+    document.getElementById('elAgentId').textContent   = d.agentId;
+    document.getElementById('elKeyStatus').textContent = d.hasKey ? '✓ Gesetzt' : '✗ Fehlt in .env';
+    document.getElementById('elKeyStatus').style.color = d.hasKey ? '#5dcaa5' : '#f87171';
+  } catch {}
+}
+
+// ─── Drawer ────────────────────────────────────────────────────────────────────
+function toggleDrawer() {
+  const open = document.getElementById('drawer').classList.toggle('open');
+  document.getElementById('drawerOverlay').classList.toggle('open', open);
+  document.getElementById('gearBtn').classList.toggle('open', open);
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawerOverlay').classList.remove('open');
+  document.getElementById('gearBtn').classList.remove('open');
+}
+window.toggleDrawer = toggleDrawer;
+window.closeDrawer  = closeDrawer;
+
+// ─── State helpers ─────────────────────────────────────────────────────────────
+function setState(s) {
+  state = s;
+  const cls = s + (lang === 'fa' ? ' fa' : '') + (provider === 'elevenlabs' ? ' el-mode' : '');
+  document.body.className = cls;
+  document.getElementById('statusLabel').textContent = strings[lang][s] || strings[lang].idle;
+}
+
+function showError(msg) {
+  document.getElementById('errorMsg').textContent = msg;
+  setTimeout(() => document.getElementById('errorMsg').textContent = '', 4000);
+}
+
+// ─── Toggle session ────────────────────────────────────────────────────────────
+async function toggleSession() {
+  if (state === 'idle') {
+    provider === 'elevenlabs' ? await startELSession() : await startOAISession();
+  } else {
+    provider === 'elevenlabs' ? stopELSession() : stopOAISession();
+  }
+}
+window.toggleSession = toggleSession;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  OPENAI SESSION
+// ═══════════════════════════════════════════════════════════════════════════════
+async function startOAISession() {
+  setState('connecting');
+  document.getElementById('aiText').textContent = '';
+  document.getElementById('aiBox').classList.remove('has-text');
+  try {
+    const { voice, threshold, silence } = settings.oai;
+    const res  = await fetch(`/session?voice=${voice}&threshold=${threshold}&silence=${silence}&lang=${lang}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const token = data.client_secret.value;
+
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser  = audioCtx.createAnalyser();
+    analyser.fftSize = 128;
+    analyser.smoothingTimeConstant = 0.8;
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+    audioCtx.createMediaStreamSource(localStream).connect(analyser);
+
+    pc = new RTCPeerConnection();
+    pc.ontrack = e => { document.getElementById('aiAudio').srcObject = e.streams[0]; };
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+    dc = pc.createDataChannel('oai-events');
+    dc.onmessage = handleOAIEvent;
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    const sdpRes = await fetch(
+      'https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17',
+      {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/sdp' },
+        body: offer.sdp,
+      }
+    );
+    await pc.setRemoteDescription({ type: 'answer', sdp: await sdpRes.text() });
+    setState('listening');
+  } catch (err) {
+    showError('Fehler: ' + err.message);
+    stopOAISession();
+  }
+}
+
+function stopOAISession() {
+  if (dc) { dc.close(); dc = null; }
+  if (pc) { pc.close(); pc = null; }
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  if (audioCtx)    { audioCtx.close(); audioCtx = null; analyser = null; }
+  setState('idle');
+}
+
+async function handleOAIEvent(e) {
+  let msg;
+  try { msg = JSON.parse(e.data); } catch { return; }
+  switch (msg.type) {
+    case 'response.audio_transcript.delta': {
+      const aiText = document.getElementById('aiText');
+      const aiBox  = document.getElementById('aiBox');
+      aiText.textContent += msg.delta || '';
+      aiBox.classList.add('has-text');
+      requestAnimationFrame(() => { aiBox.scrollTop = aiBox.scrollHeight; });
+      setState('speaking');
+      break;
+    }
+    case 'response.audio_transcript.done':
+      setState('listening');
+      break;
+    case 'error':
+      showError(msg.error?.message || 'Unbekannter Fehler');
+      break;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  ELEVENLABS SESSION
+// ═══════════════════════════════════════════════════════════════════════════════
+const EL_AGENT_ID = 'agent_9001kqq67q9bfm1bkybvap126qxw';
+let elMicStream   = null;
+let elTranscript  = [];   // ← collect messages
+let elStartTime   = null; // ← track duration
+
+async function startELSession() {
+  setState('connecting');
+  document.getElementById('aiText').textContent = '';
+  document.getElementById('aiBox').classList.remove('has-text');
+  elTranscript = [];
+  elStartTime  = Date.now();
+  window._currentConvId = null;
+  try {
+    // ── 1. Microphone permission — explicit request first ──
+    try {
+      elMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (micErr) {
+      throw new Error('Mikrofon-Zugriff verweigert: ' + micErr.message);
+    }
+
+    // ── 1b. Connect mic to Web Audio analyser for visualizer ──
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser  = audioCtx.createAnalyser();
+    analyser.fftSize = 128;
+    analyser.smoothingTimeConstant = 0.8;
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+    audioCtx.createMediaStreamSource(elMicStream).connect(analyser);
+
+    // ── 2. Fetch session info ──
+    const res  = await fetch('/el-session');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    // ── 3. Wait for ElevenLabs SDK to load ──
+    let retries = 0;
+    while (!window._ELConversation && retries++ < 30) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    if (!window._ELConversation) throw new Error('ElevenLabs SDK konnte nicht geladen werden');
+
+    const Conversation = window._ELConversation;
+
+    // ── 4. Start session — pass explicit mic stream so audio definitely goes through ──
+    elConversation = await Conversation.startSession({
+      agentId: data.agent_id,
+
+      onConnect: () => {
+        setState('listening');
+        fetch('/create-conversation', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ lang }),
+        })
+        .then(r => r.json())
+        .then(d => { if (d.id) window._currentConvId = d.id; })
+        .catch(e => console.warn('Create conversation failed:', e));
+      },
+
+      onDisconnect: () => {
+        elConversation = null;
+        _stopElMic();
+        const duration_s = elStartTime ? Math.round((Date.now() - elStartTime) / 1000) : 0;
+        _updateConversation(duration_s);
+        setState('idle');
+      },
+
+      onMessage: (msg) => {
+        const { message, source } = msg;
+        const text = typeof message === 'string' ? message : message?.text;
+        if (text) elTranscript.push({ role: source === 'ai' ? 'ai' : 'user', text });
+        if (source === 'ai' && text) {
+          const aiText = document.getElementById('aiText');
+          const aiBox  = document.getElementById('aiBox');
+          aiText.textContent += text;
+          aiBox.classList.add('has-text');
+          requestAnimationFrame(() => { aiBox.scrollTop = aiBox.scrollHeight; });
+        }
+      },
+
+      onModeChange: ({ mode }) => {
+        if (mode.mode === 'speaking')  setState('speaking');
+        if (mode.mode === 'listening') setState('listening');
+      },
+
+      onError: (msg) => {
+        // SDK fires onError when clientTool is called but not registered — catch it here
+        if (
+          (typeof msg === 'object' && msg?.clientToolName === 'show_contact_form') ||
+          (typeof msg === 'string' && msg.includes('show_contact_form'))
+        ) {
+          showContactForm();
+          return;
+        }
+        const txt = typeof msg === 'string' ? msg : (msg?.message || JSON.stringify(msg));
+        if (txt && !txt.includes('show_contact_form')) showError('EL Fehler: ' + txt);
+      },
+
+      clientTools: {
+        show_contact_form: (_params) => {
+          window.showContactForm();
+          return 'success';
+        },
+      },
+    });
+
+  } catch (err) {
+    showError('Fehler: ' + err.message);
+    _stopElMic();
+    setState('idle');
+  }
+}
+
+function _stopElMic() {
+  if (elMicStream) {
+    elMicStream.getTracks().forEach(t => t.stop());
+    elMicStream = null;
+  }
+  if (audioCtx) { audioCtx.close(); audioCtx = null; analyser = null; }
+}
+
+async function _updateConversation(duration_s) {
+  if (!elTranscript || elTranscript.length === 0) return;
+  try {
+    if (window._currentConvId) {
+      // Update existing record
+      await fetch('/update-conversation', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          id: window._currentConvId,
+          transcript: elTranscript,
+          duration_s,
+          lang,
+        }),
+      });
+    } else {
+      // Fallback: save as new record
+      await fetch('/save-conversation', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ transcript: elTranscript, duration_s, lang }),
+      });
+    }
+  } catch(e) { console.warn('Update/save conversation failed:', e); }
+  window._currentConvId = null;
+}
+
+async function stopELSession() {
+  if (elConversation) {
+    try { await elConversation.endSession(); } catch {}
+    elConversation = null;
+  }
+  _stopElMic();
+  setState('idle');
+}
+
+// ─── Text chat (OpenAI only) ───────────────────────────────────────────────────
+async function sendText() {
+  const input = document.getElementById('textInput');
+  const text  = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  document.getElementById('aiBox').classList.add('has-text');
+  document.getElementById('aiText').textContent = '';
+  setState('speaking');
+  try {
+    const response = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text }),
+    });
+    const reader  = response.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      document.getElementById('aiText').textContent += decoder.decode(value);
+      document.getElementById('aiBox').scrollTop = document.getElementById('aiBox').scrollHeight;
+    }
+  } catch (err) {
+    showError('Fehler: ' + err.message);
+  } finally {
+    setState('idle');
+  }
+}
+
+window.sendText = sendText;
+
+// ─── Contact Form ─────────────────────────────────────────────────────────────
+function showContactForm() {
+  document.getElementById('contactFormBackdrop').classList.add('visible');
+  setTimeout(() => document.getElementById('contactEmail').focus(), 200);
+}
+function hideContactForm() {
+  document.getElementById('contactFormBackdrop').classList.remove('visible');
+  document.getElementById('contactEmail').value = '';
+  document.getElementById('contactPhone').value = '';
+  document.getElementById('contactEmail').classList.remove('error');
+  document.getElementById('contactPhone').classList.remove('error');
+}
+function handleBackdropClick(e) {
+  if (e.target === document.getElementById('contactFormBackdrop')) hideContactForm();
+}
+async function submitContactForm() {
+  const emailEl = document.getElementById('contactEmail');
+  const phoneEl = document.getElementById('contactPhone');
+  const email   = emailEl.value.trim();
+  const phone   = phoneEl.value.trim();
+  const emailOk = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/.test(email);
+
+  emailEl.classList.remove('error');
+  phoneEl.classList.remove('error');
+
+  // Must have at least one
+  if (!email && !phone) {
+    emailEl.classList.add('error');
+    phoneEl.classList.add('error');
+    return;
+  }
+  // If email provided, must be valid
+  if (email && !emailOk) {
+    emailEl.classList.add('error');
+    return;
+  }
+
+  // 1. Save lead to DB
+  try {
+    await fetch('/webhook/lead', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ email: email||'', phone: phone||'', notes:'Submitted via contact form' }),
+    });
+  } catch(e) { console.warn('Lead save failed:', e); }
+
+  // 2. Link contact to conversation
+  try {
+    let convId = window._currentConvId;
+    // If no saved conversation yet, get the latest one
+    if (!convId) {
+      const r = await fetch('/latest-conversation').then(r => r.json());
+      convId = r.id;
+    }
+    if (convId) {
+      await fetch('/update-contact', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ conversation_id: convId, email, phone }),
+      });
+    }
+  } catch(e) { console.warn('Contact update failed:', e); }
+
+  // 3. Notify agent
+  if (elConversation) {
+    try {
+      const info = [email?`Email: ${email}`:'', phone?`Phone: ${phone}`:''].filter(Boolean).join(', ');
+      await elConversation.sendUserMessage(
+        `The user submitted their contact info: ${info}. Please confirm warmly and close.`
+      );
+    } catch(e) { console.warn('Could not send message:', e); }
+  }
+  hideContactForm();
+}
+window.showContactForm     = showContactForm;
+window.hideContactForm     = hideContactForm;
+window.handleBackdropClick = handleBackdropClick;
+window.submitContactForm   = submitContactForm;
+
+// ─── Visualizer ────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('visualizer');
+const ctx    = canvas.getContext('2d');
+let phase    = 0;
+
+function resize() {
+  const s = canvas.parentElement.offsetWidth + 100;
+  canvas.width = s; canvas.height = s;
+}
+resize();
+
+const elColor = { line: 'rgba(93,202,165,', bg: 'rgba(29,158,117,' };
+const oaColor = { line: 'rgba(91,141,238,', bg: 'rgba(122,163,245,' };
+
+(function draw() {
+  requestAnimationFrame(draw); resize();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const cx = canvas.width/2, cy = canvas.height/2, br = canvas.width*0.27;
+  if (analyser && state === 'listening') analyser.getByteFrequencyData(dataArray);
+  phase += 0.02;
+  const col = provider === 'elevenlabs' ? elColor : oaColor;
+  for (let i = 0; i < 56; i++) {
+    const ang = (i/56)*Math.PI*2 - Math.PI/2;
+    let amp;
+    if (state === 'listening' && analyser) amp = dataArray[Math.floor(i/56*dataArray.length)]/255;
+    else if (state === 'speaking') amp = 0.1 + Math.abs(Math.sin(phase*3+i*.4))*.22;
+    else if (state === 'connecting') amp = 0.05 + Math.abs(Math.sin(phase*2+i*.15))*.08;
+    else amp = 0.02 + Math.abs(Math.sin(phase+i*.22))*.05;
+    const r1=br+4, r2=r1+br*amp*.5+2.5;
+    ctx.beginPath();
+    ctx.moveTo(cx+Math.cos(ang)*r1, cy+Math.sin(ang)*r1);
+    ctx.lineTo(cx+Math.cos(ang)*r2, cy+Math.sin(ang)*r2);
+    ctx.lineWidth = state === 'idle' ? 1.2 : 1.8;
+    ctx.strokeStyle = state === 'listening'
+      ? `${col.line}${0.45+amp*.5})`
+      : state === 'speaking'
+      ? `${col.bg}${0.45+amp*.5})`
+      : `${col.line}${state==='idle'?.15:.3})`;
+    ctx.lineCap = 'round'; ctx.stroke();
+  }
+})();
+</script>
+</body>
+</html>
