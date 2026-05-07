@@ -90,9 +90,10 @@
   @keyframes spin{to{transform:rotate(360deg)}}
   .status-wrap{height:28px;display:flex;align-items:center;justify-content:center;margin-bottom:2rem}
   .status{font-size:13px;color:var(--text-secondary);letter-spacing:.08em}
-  .response-box{width:100%;height:160px;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:1.1rem 1.4rem;transition:border-color .3s,opacity .3s;opacity:.4;margin-bottom:1rem;overflow:hidden}
+  .response-box{width:100%;height:160px;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:1.1rem 1.4rem;transition:border-color .3s,opacity .3s;opacity:.4;margin-bottom:1rem;overflow-y:auto;-webkit-overflow-scrolling:touch}
   .response-box.has-text{opacity:1;border-color:rgba(122,163,245,.2)}
   .response-box::-webkit-scrollbar{display:none}
+  .response-box{scrollbar-width:none;-ms-overflow-style:none}
   .response-label{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--text-secondary);margin-bottom:6px}
   .response-text{color:var(--text-primary);font-size:15px;line-height:1.7;min-height:24px}
   .error-msg{font-size:12px;color:#f87171;letter-spacing:.05em;margin-top:.5rem;min-height:18px;text-align:center}
@@ -340,22 +341,11 @@
 
   <div class="error-msg" id="errorMsg"></div>
 
-  <div style="width:100%;display:flex;gap:8px;margin-bottom:1rem;">
-    <input type="text" id="textInput" placeholder="Nachricht eingeben..."
-      style="flex:1;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:40px;padding:10px 18px;color:#e8eaf2;font-size:13px;font-family:inherit;outline:none;transition:border-color .25s;"
-      onkeydown="if(event.key==='Enter') sendText()"
-      onfocus="this.style.borderColor='rgba(91,141,238,.4)'"
-      onblur="this.style.borderColor='rgba(255,255,255,.07)'" />
-    <button onclick="sendText()"
-      style="background:rgba(91,141,238,.18);border:1px solid rgba(91,141,238,.3);border-radius:40px;padding:10px 18px;color:#7aa3f5;font-size:13px;font-family:inherit;cursor:pointer;transition:all .25s;white-space:nowrap;"
-      onmouseover="this.style.background='rgba(91,141,238,.3)'"
-      onmouseout="this.style.background='rgba(91,141,238,.18)'">Senden</button>
-  </div>
   <span class="hint" id="hintText">Encrypted connection</span>
 </div>
 
 <!-- ── Contact Form ── -->
-<div class="contact-form-backdrop" id="contactFormBackdrop" onclick="handleBackdropClick(event)">
+<div class="contact-form-backdrop" id="contactFormBackdrop">
   <div class="contact-form-modal" id="contactFormModal">
     <div class="contact-form-label">✦ E-Mail oder Telefon</div>
     <input type="email" id="contactEmail" class="contact-form-input"
@@ -614,9 +604,11 @@ async function startELSession() {
   setState('connecting');
   document.getElementById('aiText').textContent = '';
   document.getElementById('aiBox').classList.remove('has-text');
+  _twQueue = ''; if (_twTimer) { clearInterval(_twTimer); _twTimer = null; }
   elTranscript = [];
   elStartTime  = Date.now();
   window._currentConvId = null;
+  window._pendingClose  = false;
   try {
     // ── 1. Microphone permission — explicit request first ──
     try {
@@ -675,17 +667,38 @@ async function startELSession() {
         const text = typeof message === 'string' ? message : message?.text;
         if (text) elTranscript.push({ role: source === 'ai' ? 'ai' : 'user', text });
         if (source === 'ai' && text) {
-          const aiText = document.getElementById('aiText');
-          const aiBox  = document.getElementById('aiBox');
-          aiText.textContent += text;
+          const aiBox = document.getElementById('aiBox');
           aiBox.classList.add('has-text');
-          requestAnimationFrame(() => { aiBox.scrollTop = aiBox.scrollHeight; });
+
+          // Typewriter effect
+          typeWriter(text);
+
+          // Detect goodbye — close when agent goes silent or after timeout
+          const lower = text.toLowerCase();
+          const isGoodbye = ['bis bald', 'auf wiedersehen', 'tschüss', 'bye', 'خداحافظ', 'goodbye'].some(w => lower.includes(w));
+          if (isGoodbye) {
+            window._pendingClose = true;
+            // Backup timer in case onModeChange doesn't fire
+            setTimeout(() => {
+              if (window._pendingClose) {
+                window._pendingClose = false;
+                stopELSession();
+              }
+            }, 9000);
+          }
         }
       },
 
       onModeChange: ({ mode }) => {
         if (mode.mode === 'speaking')  setState('speaking');
-        if (mode.mode === 'listening') setState('listening');
+        if (mode.mode === 'listening') {
+          setState('listening');
+          // Close session only when agent finishes speaking (goes to listening)
+          if (window._pendingClose) {
+            window._pendingClose = false;
+            setTimeout(() => stopELSession(), 1500);
+          }
+        }
       },
 
       onError: (msg) => {
@@ -790,10 +803,37 @@ async function sendText() {
 
 window.sendText = sendText;
 
+// ─── Typewriter effect ────────────────────────────────────────────────────────
+let _twQueue = '';
+let _twTimer = null;
+
+function typeWriter(newText) {
+  _twQueue += newText;
+  if (_twTimer) return;
+  const aiText = document.getElementById('aiText');
+  const aiBox  = document.getElementById('aiBox');
+  _twTimer = setInterval(() => {
+    if (!_twQueue) { clearInterval(_twTimer); _twTimer = null; return; }
+    aiText.textContent += _twQueue[0];
+    _twQueue = _twQueue.slice(1);
+    aiBox.scrollTop = aiBox.scrollHeight;
+  }, 18);
+}
+
 // ─── Contact Form ─────────────────────────────────────────────────────────────
 function showContactForm() {
   document.getElementById('contactFormBackdrop').classList.add('visible');
   setTimeout(() => document.getElementById('contactEmail').focus(), 200);
+  // Tell agent to wait - delayed to not interrupt current speech
+  setTimeout(() => {
+    if (elConversation) {
+      try {
+        elConversation.sendUserMessage(
+          'The contact form is now visible on screen. Please wait silently for the user to fill it in and submit it.'
+        );
+      } catch(e) {}
+    }
+  }, 3000);
 }
 function hideContactForm() {
   document.getElementById('contactFormBackdrop').classList.remove('visible');
@@ -827,40 +867,44 @@ async function submitContactForm() {
     return;
   }
 
-  // 1. Save lead to DB
-  try {
-    await fetch('/webhook/lead', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ email: email||'', phone: phone||'', notes:'Submitted via contact form' }),
-    });
-  } catch(e) { console.warn('Lead save failed:', e); }
-
-  // 2. Link contact to conversation
-  try {
-    let convId = window._currentConvId;
-    // If no saved conversation yet, get the latest one
-    if (!convId) {
-      const r = await fetch('/latest-conversation').then(r => r.json());
-      convId = r.id;
-    }
-    if (convId) {
-      await fetch('/update-contact', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ conversation_id: convId, email, phone }),
-      });
-    }
-  } catch(e) { console.warn('Contact update failed:', e); }
-
-  // 3. Notify agent
-  if (elConversation) {
-    try {
-      const info = [email?`Email: ${email}`:'', phone?`Phone: ${phone}`:''].filter(Boolean).join(', ');
-      await elConversation.sendUserMessage(
-        `The user submitted their contact info: ${info}. Please confirm warmly and close.`
-      );
-    } catch(e) { console.warn('Could not send message:', e); }
-  }
+  // Close form immediately — no delay for user
   hideContactForm();
+
+  // Do everything else in background
+  (async () => {
+    // 1. Save lead to DB
+    try {
+      await fetch('/webhook/lead', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ email: email||'', phone: phone||'', notes:'Submitted via contact form' }),
+      });
+    } catch(e) { console.warn('Lead save failed:', e); }
+
+    // 2. Link contact to conversation
+    try {
+      let convId = window._currentConvId;
+      if (!convId) {
+        const r = await fetch('/latest-conversation').then(r => r.json());
+        convId = r.id;
+      }
+      if (convId) {
+        await fetch('/update-contact', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ conversation_id: convId, email, phone }),
+        });
+      }
+    } catch(e) { console.warn('Contact update failed:', e); }
+
+    // 3. Notify agent
+    if (elConversation) {
+      try {
+        const info = [email?`Email: ${email}`:'', phone?`Phone: ${phone}`:''].filter(Boolean).join(', ');
+        await elConversation.sendUserMessage(
+          `The contact form has been submitted. Contact info received: ${info}. Please confirm receipt warmly and thank the user.`
+        );
+      } catch(e) { console.warn('Could not send message:', e); }
+    }
+  })();
 }
 window.showContactForm     = showContactForm;
 window.hideContactForm     = hideContactForm;
