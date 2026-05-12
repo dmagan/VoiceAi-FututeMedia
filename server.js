@@ -10,10 +10,20 @@ const PORT = process.env.PORT || 3109;
 const mailer = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: 'alimagani@gmail.com',
-    pass: 'gwbbmplegcuajkxn',
+    user: process.env.MAIL_USER,
+    pass: process.env.MAIL_PASS,
   },
 });
+
+// ─── Google Calendar ───────────────────────────────────────────────────────────
+const { google } = require('googleapis');
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  'https://voiceai.asadmindset.com/auth/google/callback'
+);
+oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
 app.use(express.static('public'));
 app.use(express.json());
@@ -309,8 +319,8 @@ app.post('/send-transcript', async (req, res) => {
 </html>`;
 
     await mailer.sendMail({
-      from:    '"Future Media AI" <alimagani@gmail.com>',
-      to:      'alimagani@gmail.com',
+      from:    '"Future Media AI" <' + (process.env.MAIL_USER) + '>',
+      to:      process.env.MAIL_USER,
       subject: `🎙️ Voice-Gespräch – ${dateStr}`,
       html,
     });
@@ -495,6 +505,350 @@ app.get('/admin/conversations/:id', (req, res) => {
   if (!conv) return res.status(404).json({ error: 'Not found' });
   conv.transcript = JSON.parse(conv.transcript || '[]');
   res.json(conv);
+});
+
+// ─── Google Calendar: Get today's events ──────────────────────────────────────
+app.get('/calendar/events', async (req, res) => {
+  try {
+    const calendarId = req.query.cal || process.env.GOOGLE_CALENDAR_ID || 'primary';
+    const now   = new Date();
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(now);
+    end.setHours(23, 59, 59, 999);
+
+    const response = await calendar.events.list({
+      calendarId,
+      timeMin: start.toISOString(),
+      timeMax: end.toISOString(),
+      singleEvents: true,
+      orderBy: 'startTime',
+    });
+
+    const events = (response.data.items || []).map(e => ({
+      id:          e.id,
+      title:       e.summary || '—',
+      description: e.description || '',
+      start:       e.start?.dateTime || e.start?.date,
+      end:         e.end?.dateTime   || e.end?.date,
+      attendees:   (e.attendees || []).map(a => ({
+        email:  a.email,
+        name:   a.displayName || '',
+        status: a.responseStatus,
+      })),
+    }));
+
+    res.json({ calendar: calendarId, date: now.toLocaleDateString('de-CH'), events });
+  } catch (err) {
+    console.error('Calendar events error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Google Calendar: Check availability ──────────────────────────────────────
+app.get('/calendar/slots', async (req, res) => {
+  try {
+    const now      = new Date();
+    const weekEnd  = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const response = await calendar.freebusy.query({
+      requestBody: {
+        timeMin: now.toISOString(),
+        timeMax: weekEnd.toISOString(),
+        items: [{ id: process.env.GOOGLE_CALENDAR_ID || 'primary' }],
+      },
+    });
+
+    const busy = response.data.calendars?.primary?.busy || [];
+
+    // Generate available slots (9:00-17:00, 30 min each, next 7 days)
+    const slots = [];
+    for (let d = 1; d <= 7; d++) {
+      const day = new Date(now);
+      day.setDate(day.getDate() + d);
+      day.setHours(0, 0, 0, 0);
+
+      // Skip weekends
+      if (day.getDay() === 0 || day.getDay() === 6) continue;
+
+      for (let h = 9; h < 17; h++) {
+        for (let m = 0; m < 60; m += 30) {
+          const start = new Date(day);
+          start.setHours(h, m, 0, 0);
+          const end = new Date(start.getTime() + 30 * 60 * 1000);
+
+          // Check if slot is free
+          const isBusy = busy.some(b =>
+            new Date(b.start) < end && new Date(b.end) > start
+          );
+          if (!isBusy) {
+            slots.push({
+              start: start.toISOString(),
+              end:   end.toISOString(),
+              label: start.toLocaleString('de-CH', {
+                weekday:'short', day:'2-digit', month:'2-digit',
+                hour:'2-digit', minute:'2-digit', timeZone:'Europe/Zurich'
+              }),
+            });
+          }
+        }
+      }
+    }
+
+    res.json({ slots: slots.slice(0, 10) }); // return first 10 slots
+  } catch (err) {
+    console.error('Calendar error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Google Calendar: Next available slot (from tomorrow) ─────────────────────
+app.get('/calendar/next-slot', async (req, res) => {
+  try {
+    const calId  = process.env.GOOGLE_CALENDAR_ID || 'primary';
+    const now    = new Date();
+    // Start from tomorrow 00:00 Zurich
+    const start  = new Date(now);
+    start.setDate(start.getDate() + 1);
+    start.setHours(0, 0, 0, 0);
+    const end    = new Date(start.getTime() + 14 * 24 * 60 * 60 * 1000); // 2 weeks ahead
+
+    const fbRes  = await calendar.freebusy.query({
+      requestBody: { timeMin: start.toISOString(), timeMax: end.toISOString(), items: [{ id: calId }] },
+    });
+    const busy = (fbRes.data.calendars?.[calId]?.busy || []).map(b => ({
+      s: new Date(b.start), e: new Date(b.end),
+    }));
+
+    // Iterate day by day, 9-17, 30-min slots
+    for (let d = 0; d < 14; d++) {
+      const day = new Date(start);
+      day.setDate(day.getDate() + d);
+      const dow = day.getDay();
+      if (dow === 0 || dow === 6) continue; // skip weekends
+
+      for (let h = 9; h < 17; h++) {
+        for (let m = 0; m < 60; m += 30) {
+          const slotStart = new Date(day);
+          slotStart.setHours(h, m, 0, 0);
+          const slotEnd = new Date(slotStart.getTime() + 30 * 60 * 1000);
+          const isBusy  = busy.some(b => b.s < slotEnd && b.e > slotStart);
+          if (!isBusy) {
+            const label = slotStart.toLocaleString('de-CH', {
+              weekday: 'long', day: '2-digit', month: '2-digit',
+              hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Zurich',
+            });
+            return res.json({
+              available: true,
+              start: slotStart.toISOString(),
+              end:   slotEnd.toISOString(),
+              label,
+            });
+          }
+        }
+      }
+    }
+    res.json({ available: false, message: 'Keine freien Slots in den nächsten 14 Tagen' });
+  } catch (err) {
+    console.error('Next-slot error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Google Calendar: Check specific slot, return nearest free if busy ─────────
+app.get('/calendar/check-slot', async (req, res) => {
+  try {
+    const calId     = process.env.GOOGLE_CALENDAR_ID || 'primary';
+    const requested = new Date(req.query.datetime);
+    if (isNaN(requested)) return res.status(400).json({ error: 'Invalid datetime' });
+
+    const windowStart = new Date(requested.getTime() - 2 * 60 * 60 * 1000); // 2h before
+    const windowEnd   = new Date(requested.getTime() + 4 * 60 * 60 * 1000); // 4h after
+
+    const fbRes = await calendar.freebusy.query({
+      requestBody: { timeMin: windowStart.toISOString(), timeMax: windowEnd.toISOString(), items: [{ id: calId }] },
+    });
+    const busy = (fbRes.data.calendars?.[calId]?.busy || []).map(b => ({
+      s: new Date(b.start), e: new Date(b.end),
+    }));
+
+    const slotEnd = new Date(requested.getTime() + 30 * 60 * 1000);
+    const isReqBusy = busy.some(b => b.s < slotEnd && b.e > requested);
+
+    if (!isReqBusy) {
+      const label = requested.toLocaleString('de-CH', {
+        weekday: 'long', day: '2-digit', month: '2-digit',
+        hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Zurich',
+      });
+      return res.json({ available: true, start: requested.toISOString(), end: slotEnd.toISOString(), label });
+    }
+
+    // Find nearest free slot — search ±3h in 30-min steps
+    for (let offset = 30; offset <= 180; offset += 30) {
+      for (const sign of [1, -1]) {
+        const candidate    = new Date(requested.getTime() + sign * offset * 60 * 1000);
+        const candidateEnd = new Date(candidate.getTime() + 30 * 60 * 1000);
+        const h            = candidate.getHours();
+        const dow          = candidate.getDay();
+        if (dow === 0 || dow === 6 || h < 9 || h >= 17) continue;
+        const isBusy = busy.some(b => b.s < candidateEnd && b.e > candidate);
+        if (!isBusy) {
+          const label = candidate.toLocaleString('de-CH', {
+            weekday: 'long', day: '2-digit', month: '2-digit',
+            hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Zurich',
+          });
+          return res.json({ available: false, nearest: true, start: candidate.toISOString(), end: candidateEnd.toISOString(), label });
+        }
+      }
+    }
+
+    res.json({ available: false, nearest: false, message: 'Kein freier Slot in der Nähe gefunden' });
+  } catch (err) {
+    console.error('Check-slot error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Google Calendar: Book appointment ────────────────────────────────────────
+app.post('/calendar/book', async (req, res) => {
+  try {
+    const { start, end, name, email, phone, business, budget, team_size } = req.body;
+
+    // 1. Write to Google Calendar
+    const computedEnd = end || new Date(new Date(start).getTime() + 30 * 60 * 1000).toISOString();
+    const description = [
+      `Name: ${name       || '—'}`,
+      `Email: ${email     || '—'}`,
+      `Telefon: ${phone   || '—'}`,
+      `Unternehmen: ${business  || '—'}`,
+      `Budget: ${budget   || '—'}`,
+      `Teamgrösse: ${team_size || '—'}`,
+    ].join('\n');
+
+    let eventId = null;
+    let eventLink = null;
+    try {
+      const event = await calendar.events.insert({
+        calendarId: process.env.GOOGLE_CALENDAR_ID || 'primary',
+        requestBody: {
+          summary:     `15-Min Beratung — ${name || 'Kunde'}`,
+          description,
+          start: { dateTime: start,        timeZone: 'Europe/Zurich' },
+          end:   { dateTime: computedEnd,  timeZone: 'Europe/Zurich' },
+          attendees: email ? [{ email }] : [],
+        },
+      });
+      eventId   = event.data.id;
+      eventLink = event.data.htmlLink;
+      console.log('Calendar event created:', eventId, name, start);
+    } catch (calErr) {
+      // Calendar write may fail if no write permission yet — continue to send email anyway
+      console.warn('Calendar write skipped (no write access yet):', calErr.message);
+    }
+
+    // 2. Format appointment time nicely
+    const apptDate = new Date(start).toLocaleString('de-CH', {
+      weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Zurich',
+    });
+
+    // 3. Send notification email to Future Media
+    const internalHtml = `
+<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#111;font-family:Arial,sans-serif;">
+  <div style="max-width:560px;margin:30px auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="background:#111;padding:24px 28px;display:flex;align-items:center;gap:14px;">
+      <div>
+        <div style="color:#fff;font-size:18px;font-weight:700;letter-spacing:-0.3px;">Future Media GmbH</div>
+        <div style="color:#666;font-size:12px;margin-top:2px;">Neuer Beratungstermin — Voice AI</div>
+      </div>
+    </div>
+    <div style="background:#f7f7f5;padding:28px 32px;">
+      <div style="font-size:20px;font-weight:700;color:#111;margin-bottom:4px;letter-spacing:-0.3px;">📅 Neuer Termin eingegangen</div>
+      <div style="font-size:13px;color:#888;margin-bottom:22px;">Ein Interessent hat einen Termin über den Voice AI Assistenten gebucht.</div>
+      <div style="background:#111;color:#fff;border-radius:10px;padding:16px 20px;margin-bottom:22px;">
+        <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Termin</div>
+        <div style="font-size:17px;font-weight:700;letter-spacing:-0.3px;">${apptDate}</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+        ${[
+          ['Name',        name       || '—'],
+          ['E-Mail',      email      || '—'],
+          ['Telefon',     phone      || '—'],
+          ['Unternehmen', business   || '—'],
+          ['Budget',      budget     || '—'],
+          ['Teamgrösse',  team_size  || '—'],
+        ].map(([k, v]) => `
+          <tr style="border-bottom:1px solid #e8e8e5;">
+            <td style="padding:10px 0;font-size:13px;color:#888;width:130px;">${k}</td>
+            <td style="padding:10px 0;font-size:14px;color:#111;font-weight:500;">${v}</td>
+          </tr>`).join('')}
+      </table>
+      ${eventLink ? `<a href="${eventLink}" style="display:inline-block;background:#111;color:#fff;padding:11px 22px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;">Im Kalender ansehen →</a>` : ''}
+    </div>
+    <div style="background:#111;padding:14px 32px;text-align:center;">
+      <div style="font-size:11px;color:#555;">Future Media GmbH · Bern &amp; Zürich · info@future-media.ch</div>
+    </div>
+  </div>
+</body></html>`;
+
+    await mailer.sendMail({
+      from:    '"Future Media AI" <' + (process.env.MAIL_USER) + '>',
+      to:      process.env.MAIL_USER,
+      subject: `📅 Neuer Termin: ${name || 'Kunde'} — ${apptDate}`,
+      html:    internalHtml,
+    });
+    console.log('Booking email sent to team:', name, apptDate);
+
+    // 4. Send confirmation email to user (only if email provided)
+    if (email && /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/.test(email)) {
+      const userHtml = `
+<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#111;font-family:Arial,sans-serif;">
+  <div style="max-width:560px;margin:30px auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="background:#111;padding:24px 28px;">
+      <div style="color:#fff;font-size:18px;font-weight:700;letter-spacing:-0.3px;">Future Media GmbH</div>
+      <div style="color:#666;font-size:12px;margin-top:2px;">Schweizer Social Media Agentur</div>
+    </div>
+    <div style="background:#f7f7f5;padding:28px 32px;">
+      <div style="font-size:20px;font-weight:700;color:#111;margin-bottom:4px;letter-spacing:-0.3px;">✅ Termin bestätigt</div>
+      <div style="font-size:13px;color:#888;margin-bottom:22px;">Dein kostenloses 15-Minuten-Gespräch ist eingetragen.</div>
+      <p style="font-size:14px;color:#444;margin:0 0 18px;line-height:1.7;">Hallo ${name || ''},<br>vielen Dank! Wir freuen uns auf unser Gespräch.</p>
+      <div style="background:#111;color:#fff;border-radius:10px;padding:16px 20px;margin-bottom:22px;">
+        <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Dein Termin</div>
+        <div style="font-size:17px;font-weight:700;letter-spacing:-0.3px;">📅 ${apptDate}</div>
+      </div>
+      <p style="font-size:13px;color:#777;line-height:1.7;margin:0 0 22px;">
+        Unser Team meldet sich in Kürze bei dir.<br>
+        Bei Fragen erreichst du uns unter
+        <a href="mailto:info@future-media.ch" style="color:#111;font-weight:600;text-decoration:none;">info@future-media.ch</a>
+        oder <a href="tel:+41787993517" style="color:#111;font-weight:600;text-decoration:none;">078 799 35 17</a>.
+      </p>
+      <div style="border-top:1px solid #e8e8e5;padding-top:18px;font-size:12px;color:#888;line-height:1.6;">
+        <strong style="color:#111;">Future Media GmbH</strong><br>
+        Weltpoststrasse 5, 3015 Bern · Hardstrasse 201, 8005 Zürich
+      </div>
+    </div>
+    <div style="background:#111;padding:14px 32px;text-align:center;">
+      <div style="font-size:11px;color:#555;">© 2026 Future Media GmbH · future-media.ch</div>
+    </div>
+  </div>
+</body></html>`;
+
+      await mailer.sendMail({
+        from:    '"Future Media GmbH" <' + (process.env.MAIL_USER) + '>',
+        to:      email,
+        subject: `✅ Dein Beratungstermin – ${apptDate}`,
+        html:    userHtml,
+      });
+      console.log('Confirmation email sent to user:', email);
+    }
+
+    res.json({ success: true, eventId, link: eventLink, appointment: apptDate });
+  } catch (err) {
+    console.error('Calendar book error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.listen(PORT, () => {

@@ -719,6 +719,65 @@ async function startELSession() {
           window.showContactForm();
           return 'success';
         },
+
+        get_next_available_slot: (_params) => {
+          return fetch('/calendar/next-slot')
+            .then(r => r.json())
+            .then(data => {
+              if (data.available) {
+                window._nextSlot = { start: data.start, end: data.end };
+                return JSON.stringify({ available: true, slot: data.label, start: data.start, end: data.end });
+              }
+              return JSON.stringify({ available: false, message: data.message || 'Keine freien Slots' });
+            })
+            .catch(e => JSON.stringify({ error: e.message }));
+        },
+
+        check_specific_slot: (params) => {
+          const datetime = params.datetime;
+          return fetch('/calendar/check-slot?datetime=' + encodeURIComponent(datetime))
+            .then(r => r.json())
+            .then(data => {
+              if (data.available) {
+                window._nextSlot = { start: data.start, end: data.end };
+                return JSON.stringify({ available: true, slot: data.label, start: data.start, end: data.end });
+              }
+              if (data.nearest) {
+                window._nextSlot = { start: data.start, end: data.end };
+                return JSON.stringify({ available: false, nearest: true, slot: data.label, start: data.start, end: data.end });
+              }
+              return JSON.stringify({ available: false, nearest: false, message: data.message });
+            })
+            .catch(e => JSON.stringify({ error: e.message }));
+        },
+
+        book_appointment: (params) => {
+          const slot = window._nextSlot || {};
+          const body = {
+            start:     params.start     || slot.start,
+            end:       params.end       || slot.end,
+            name:      params.name      || '',
+            email:     params.email     || '',
+            phone:     params.phone     || '',
+            business:  params.business  || '',
+            budget:    params.budget    || '',
+            team_size: params.team_size || '',
+          };
+          return fetch('/calendar/book', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          })
+            .then(r => r.json())
+            .then(data => {
+              if (data.success) {
+                window._nextSlot = null;
+                return JSON.stringify({ success: true, appointment: data.appointment });
+              }
+              return JSON.stringify({ success: false, error: data.error });
+            })
+            .catch(e => JSON.stringify({ error: e.message }));
+        },
       },
     });
 
