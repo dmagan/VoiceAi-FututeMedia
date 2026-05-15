@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Test — Voice AI Widget</title>
+<style>
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f5f5f7;
+    color: #1d1d1f;
+    min-height: 100vh;
+  }
+  .fake-site {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 60px 24px;
+  }
+  .fake-site h1 { font-size: 42px; margin: 0 0 12px; }
+  .fake-site p  { font-size: 17px; line-height: 1.6; color: #555; max-width: 640px; }
+  .fake-site .card {
+    background: white;
+    border-radius: 16px;
+    padding: 32px;
+    margin-top: 32px;
+    box-shadow: 0 2px 20px rgba(0,0,0,.04);
+  }
+  .note {
+    background: #fff7e6;
+    border-left: 4px solid #f59e0b;
+    padding: 14px 18px;
+    border-radius: 8px;
+    margin-top: 24px;
+    font-size: 14px;
+    color: #78350f;
+  }
+</style>
+</head>
+<body>
+
+<div class="fake-site">
+  <h1>Fake Wix Site</h1>
+  <p>این یه صفحه آزمایشی هست که نقش سایت مشتری رو بازی می‌کنه. در گوشه پایین-راست باید یه دکمه دایره‌ای بنفش با آیکون میکروفون ببینی.</p>
+
+  <div class="card">
+    <h2>محتوای ساختگی</h2>
+    <p>کلیک روی دکمه گوشه باعث می‌شه widget باز بشه و سایت <code>voiceai.asadmindset.com</code> داخل iframe load بشه.</p>
+  </div>
+
+  <div class="note">
+    ⚠️ <b>توجه:</b> چون این فایل از همون domain (<code>voiceai.asadmindset.com</code>) باز می‌شه، iframe بدون مشکل CSP load می‌شه (same-origin). برای تست واقعی روی Wix، باید از یه domain دیگه باز بشه — اونجاست که Nginx config مهم می‌شه.
+  </div>
+</div>
+
+
+<!-- ============================================
+     Voice AI Floating Widget
+============================================ -->
+<style>
+  #vai-fab {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 62px;
+    height: 62px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #c084fc, #8b5cf6 50%, #4c1d95);
+    border: none;
+    cursor: pointer;
+    box-shadow:
+      0 0 0 1px rgba(168, 85, 247, 0.4),
+      0 8px 28px rgba(168, 85, 247, 0.45),
+      0 0 60px rgba(168, 85, 247, 0.2);
+    z-index: 2147483646;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.25s cubic-bezier(.34,1.56,.64,1);
+    animation: vai-pulse 2.4s ease-in-out infinite;
+  }
+  #vai-fab:hover { transform: scale(1.08); }
+  #vai-fab.open  { animation: none; }
+
+  @keyframes vai-pulse {
+    0%, 100% { box-shadow:
+      0 0 0 1px rgba(168, 85, 247, 0.4),
+      0 8px 28px rgba(168, 85, 247, 0.45),
+      0 0 0 0 rgba(168, 85, 247, 0.5);
+    }
+    50% { box-shadow:
+      0 0 0 1px rgba(168, 85, 247, 0.4),
+      0 8px 28px rgba(168, 85, 247, 0.45),
+      0 0 0 14px rgba(168, 85, 247, 0);
+    }
+  }
+
+  #vai-fab .vai-mic,
+  #vai-fab .vai-x { width: 26px; height: 26px; color: #fff; transition: opacity .2s; }
+  #vai-fab .vai-x { position: absolute; opacity: 0; }
+  #vai-fab.open .vai-mic { opacity: 0; }
+  #vai-fab.open .vai-x   { opacity: 1; }
+
+  #vai-modal {
+    position: fixed;
+    bottom: 100px;
+    right: 24px;
+    width: 400px;
+    height: 640px;
+    max-height: calc(100vh - 130px);
+    background: #080810;
+    border-radius: 22px;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+    z-index: 2147483645;
+    border: 1px solid rgba(168, 85, 247, 0.25);
+    opacity: 0;
+    transform: translateY(20px) scale(.96);
+    pointer-events: none;
+    transition: opacity .28s, transform .28s cubic-bezier(.34,1.56,.64,1);
+  }
+  #vai-modal.open {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+  #vai-modal iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+  }
+
+  @media (max-width: 520px) {
+    #vai-modal {
+      bottom: 92px;
+      right: 12px;
+      left: 12px;
+      width: auto;
+      height: calc(100vh - 110px);
+    }
+    #vai-fab { bottom: 18px; right: 18px; width: 58px; height: 58px; }
+  }
+</style>
+
+<button id="vai-fab" type="button" aria-label="Voice AI öffnen">
+  <svg class="vai-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="9" y="2" width="6" height="12" rx="3"/>
+    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+    <line x1="12" y1="19" x2="12" y2="22"/>
+    <line x1="8" y1="22" x2="16" y2="22"/>
+  </svg>
+  <svg class="vai-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+    <line x1="6" y1="6" x2="18" y2="18"/>
+    <line x1="18" y1="6" x2="6" y2="18"/>
+  </svg>
+</button>
+
+<div id="vai-modal" role="dialog" aria-label="Voice AI Assistant"></div>
+
+<script>
+(function(){
+  var fab    = document.getElementById('vai-fab');
+  var modal  = document.getElementById('vai-modal');
+  var loaded = false;
+
+  function openWidget(){
+    if (!loaded){
+      var iframe = document.createElement('iframe');
+      iframe.src = 'https://voiceai.asadmindset.com/';
+      iframe.setAttribute('allow', 'microphone; autoplay; clipboard-write');
+      iframe.setAttribute('title', 'Voice AI Assistant');
+      modal.appendChild(iframe);
+      loaded = true;
+    }
+    modal.classList.add('open');
+    fab.classList.add('open');
+  }
+
+  function closeWidget(){
+    modal.classList.remove('open');
+    fab.classList.remove('open');
+  }
+
+  fab.addEventListener('click', function(){
+    if (modal.classList.contains('open')) closeWidget();
+    else openWidget();
+  });
+
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && modal.classList.contains('open')) closeWidget();
+  });
+})();
+</script>
+
+</body>
+</html>

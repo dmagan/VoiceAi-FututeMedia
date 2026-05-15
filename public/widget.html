@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="de" dir="ltr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Voice AI</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+
+:root{
+  --purple:#a855f7;
+  --purple-glow:rgba(168,85,247,.35);
+  --text:#e8eaf2;
+  --muted:#7a7f9a;
+  --bg:#23006f;
+  --surface:rgba(255,255,255,.04);
+  --border:rgba(255,255,255,.07);
+}
+
+html,body{
+  width:100%;
+  height:100%;
+  overflow:hidden;
+}
+
+body{
+  background:var(--bg);
+  font-family:'Syne',sans-serif;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  position:relative;
+}
+
+/* Subtle grid bg */
+body::before{
+  content:'';
+  position:fixed;
+  inset:0;
+  background-image:
+    linear-gradient(rgba(168,85,247,.03) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(168,85,247,.03) 1px,transparent 1px);
+  background-size:36px 36px;
+  pointer-events:none;
+}
+body::after{
+  content:'';
+  position:fixed;
+  inset:0;
+  background:radial-gradient(ellipse 80% 80% at 50% 50%,transparent 30%,#0a0812 100%);
+  pointer-events:none;
+}
+
+/* ── Main container ── */
+.wrap{
+  position:relative;
+  z-index:1;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  width:100%;
+  padding:1rem .75rem .75rem;
+  gap:.5rem;
+}
+
+/* ── Orb ── */
+.orb-wrap{
+  position:relative;
+  width:clamp(130px,40vw,180px);
+  height:clamp(130px,40vw,180px);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
+}
+
+.ring{
+  position:absolute;
+  border-radius:50%;
+  border:1px solid rgba(168,85,247,.2);
+  animation:ringPulse 3s ease-out infinite;
+  opacity:0;
+  pointer-events:none;
+}
+.ring:nth-child(1){width:72%;height:72%;animation-delay:0s}
+.ring:nth-child(2){width:86%;height:86%;animation-delay:.9s}
+.ring:nth-child(3){width:100%;height:100%;animation-delay:1.8s}
+
+@keyframes ringPulse{
+  0%{opacity:0;transform:scale(.85)}
+  20%{opacity:.5}
+  100%{opacity:0;transform:scale(1.1)}
+}
+
+body.listening .ring{animation-duration:1.4s;border-color:rgba(168,85,247,.55)}
+body.speaking  .ring{animation-duration:1s;border-color:rgba(168,85,247,.7)}
+
+#visualizer{
+  position:absolute;
+  inset:-30px;
+  width:calc(100% + 60px);
+  height:calc(100% + 60px);
+  pointer-events:none;
+}
+
+.orb{
+  position:relative;
+  z-index:2;
+  width:clamp(80px,25vw,110px);
+  height:clamp(80px,25vw,110px);
+  border-radius:50%;
+  border:none;
+  cursor:pointer;
+  background:radial-gradient(circle at 35% 35%,#c084fc,#8b5cf6 50%,#4c1d95);
+  box-shadow:
+    0 0 0 1px rgba(168,85,247,.4),
+    0 0 30px rgba(168,85,247,.4),
+    0 0 60px rgba(168,85,247,.15),
+    inset 0 1px 0 rgba(255,255,255,.2);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  outline:none;
+  transition:transform .3s cubic-bezier(.34,1.56,.64,1),box-shadow .3s;
+}
+.orb:hover,.orb:active{transform:scale(1.06)}
+
+body.connecting .orb{animation:orbPulse 1s ease-in-out infinite}
+body.listening  .orb{animation:orbListen 1.8s ease-in-out infinite}
+body.speaking   .orb{animation:orbSpeak .8s ease-in-out infinite}
+
+@keyframes orbPulse {0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+@keyframes orbListen{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+@keyframes orbSpeak {0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+
+/* Mic icon inside orb */
+.orb-icon{width:30px;height:30px;transition:opacity .3s}
+.orb-stop{
+  position:absolute;
+  width:16px;height:16px;
+  background:rgba(255,255,255,.9);
+  border-radius:3px;
+  opacity:0;transition:opacity .3s;
+}
+body.listening .orb-stop,
+body.speaking  .orb-stop{opacity:.85}
+body.listening .orb-icon,
+body.speaking  .orb-icon{opacity:0}
+
+.orb-spinner{
+  position:absolute;
+  width:clamp(80px,25vw,110px);
+  height:clamp(80px,25vw,110px);
+  border-radius:50%;
+  border:2px solid transparent;
+  border-top-color:rgba(255,255,255,.5);
+  animation:spin 1s linear infinite;
+  opacity:0;transition:opacity .3s;
+}
+body.connecting .orb-spinner{opacity:1}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Indicator ── */
+.indicator{
+  display:flex;align-items:center;gap:5px;
+  font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);opacity:.5;
+}
+
+.mic-toggle{
+  width:38px;height:38px;border-radius:50%;
+  border:1px solid rgba(168,85,247,.35);
+  background:rgba(168,85,247,.08);
+  color:#e8eaf2;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  margin-top:.3rem;transition:all .25s;padding:0;
+  opacity:0.35;pointer-events:none;
+}
+.mic-toggle.active{opacity:1;pointer-events:auto;}
+.mic-toggle:hover{background:rgba(168,85,247,.18);transform:scale(1.06)}
+.mic-toggle.muted{background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.45);color:#fca5a5}
+.mic-icon-svg{width:16px;height:16px;display:block}
+.mute-slash{opacity:0;transition:opacity .2s}
+.mic-toggle.muted .mute-slash{opacity:1}
+.dot{
+  width:6px;height:6px;border-radius:50%;
+  background:var(--purple);
+  box-shadow:0 0 6px var(--purple);
+}
+
+/* ── Status ── */
+.status{
+  font-size:12px;color:var(--muted);
+  letter-spacing:.08em;
+  height:20px;
+  display:flex;align-items:center;
+}
+
+/* ── Response box ── */
+.ai-box{
+  width:100%;
+  flex:1;
+  min-height:60px;
+  max-height:140px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:.75rem 1rem;
+  opacity:.4;
+  transition:opacity .3s,border-color .3s;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+}
+.ai-box::-webkit-scrollbar{display:none}
+.ai-box.has-text{opacity:1;border-color:rgba(168,85,247,.25)}
+.ai-label{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.ai-text{color:var(--text);font-size:13px;line-height:1.65;min-height:20px}
+
+/* ── Error ── */
+.error{font-size:11px;color:#f87171;text-align:center;min-height:16px}
+
+/* ── Sub text ── */
+.sub{font-size:10px;color:#3a3d55;letter-spacing:.04em;text-align:center}
+
+/* ── Contact Form ── */
+.form-backdrop{
+  display:none;
+  position:fixed;inset:0;
+  background:rgba(0,0,0,.6);
+  z-index:200;
+  backdrop-filter:blur(4px);
+  align-items:center;justify-content:center;
+  padding:1rem;
+}
+.form-backdrop.visible{display:flex}
+.form-modal{
+  background:#0e0e1e;
+  border:1px solid rgba(168,85,247,.35);
+  border-radius:18px;
+  padding:20px 18px 16px;
+  width:100%;max-width:300px;
+  box-shadow:0 20px 60px rgba(0,0,0,.7);
+  animation:slideUp .3s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes slideUp{
+  from{opacity:0;transform:translateY(20px) scale(.96)}
+  to{opacity:1;transform:none}
+}
+.form-label{font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--purple);margin-bottom:14px}
+.form-input{
+  width:100%;
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:10px;
+  padding:11px 14px;
+  color:var(--text);
+  font-size:15px;
+  font-family:inherit;
+  outline:none;
+  margin-bottom:8px;
+  transition:border-color .25s;
+  -webkit-appearance:none;
+}
+.form-input:focus{border-color:rgba(168,85,247,.5)}
+.form-input.error{border-color:#f87171}
+.form-btn{
+  width:100%;
+  background:linear-gradient(135deg,#6d28d9,#a855f7);
+  border:none;border-radius:10px;
+  padding:12px;color:#fff;
+  font-size:13px;font-family:inherit;
+  cursor:pointer;min-height:44px;
+  transition:opacity .2s;
+}
+.form-btn:hover{opacity:.88}
+</style>
+</head>
+<body class="idle">
+
+<div class="wrap">
+
+  <!-- Orb -->
+  <div class="orb-wrap">
+    <div class="ring"></div>
+    <div class="ring"></div>
+    <div class="ring"></div>
+    <canvas id="visualizer"></canvas>
+
+    <button class="orb" onclick="toggleSession()">
+      <!-- Clean mic icon -->
+      <svg class="orb-icon" viewBox="0 0 32 32" fill="none">
+        <rect x="12" y="3" width="8" height="16" rx="4" fill="rgba(255,255,255,.95)"/>
+        <path d="M7 16c0 4.97 4.03 9 9 9s9-4.03 9-9" stroke="rgba(255,255,255,.95)" stroke-width="2" stroke-linecap="round"/>
+        <line x1="16" y1="25" x2="16" y2="29" stroke="rgba(255,255,255,.95)" stroke-width="2" stroke-linecap="round"/>
+        <line x1="11" y1="29" x2="21" y2="29" stroke="rgba(255,255,255,.95)" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <div class="orb-stop"></div>
+      <div class="orb-spinner"></div>
+    </button>
+  </div>
+
+
+  <!-- Status -->
+  <div class="status" id="statusLabel">Klicken zum Sprechen</div>
+
+
+  <!-- Mute button -->
+  <button class="mic-toggle" id="muteBtn" onclick="toggleMute()" title="Mikrofon stummschalten">
+    <svg class="mic-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="9" y="2" width="6" height="12" rx="3"/>
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+      <line x1="12" y1="19" x2="12" y2="22"/>
+      <line class="mute-slash" x1="3" y1="3" x2="21" y2="21"/>
+    </svg>
+  </button>
+
+  <!-- AI response box -->
+  <div class="ai-box" id="aiBox" style="display:none">
+    <div class="ai-label">AI</div>
+    <div class="ai-text" id="aiText"></div>
+  </div>
+
+  <!-- Error -->
+  <div class="error" id="errorMsg"></div>
+
+</div>
+
+<!-- Contact Form -->
+<div class="form-backdrop" id="formBackdrop">
+  <div class="form-modal">
+    <div class="form-label">✦ E-Mail oder Telefon</div>
+    <input type="email" id="fEmail" class="form-input"
+      placeholder="deine@email.com" inputmode="email"
+      autocomplete="email" autocorrect="off" autocapitalize="none"
+      onkeydown="if(event.key==='Enter') submitForm()"/>
+    <input type="tel" id="fPhone" class="form-input"
+      placeholder="+41 78 000 00 00 (optional)" inputmode="tel"
+      autocomplete="tel"
+      onkeydown="if(event.key==='Enter') submitForm()"/>
+    <button class="form-btn" onclick="submitForm()">Absenden ➜</button>
+  </div>
+</div>
+
+<audio id="aiAudio" autoplay playsinline></audio>
+
+<script type="module">
+import { Conversation } from 'https://cdn.jsdelivr.net/npm/@11labs/client@latest/+esm';
+window._ELConversation = Conversation;
+</script>
+
+<script>
+const API = 'https://voiceai.asadmindset.com';
+let state = 'idle', lang = 'de';
+let elConv = null, elMic = null, elTranscript = [], elStart = null;
+let isMuted = false;
+let audioCtx = null, analyser = null, dataArray = new Uint8Array(64);
+let _twQ = '', _twT = null;
+window._currentConvId = null;
+window._pendingClose  = false;
+window._closeTimer    = null;
+window._formTimer     = null;
+window._showFormWhenReady = false;
+
+const ST = {
+  de:{idle:'Klicken zum Sprechen',connecting:'Verbinde ...',listening:'Ich höre zu',speaking:'Antwortet'}
+};
+
+function setState(s){
+  state = s;
+  document.body.className = s;
+  document.getElementById('statusLabel').textContent = ST.de[s] || ST.de.idle;
+}
+function showError(m){
+  const el = document.getElementById('errorMsg');
+  el.textContent = m;
+  setTimeout(()=>el.textContent='',4000);
+}
+
+async function toggleSession(){
+  state === 'idle' ? await startEL() : stopEL();
+}
+window.toggleSession = toggleSession;
+
+function toggleMute(){
+  if(!elMic) return;
+  isMuted = !isMuted;
+  elMic.getAudioTracks().forEach(t => { t.enabled = !isMuted; });
+  const btn = document.getElementById('muteBtn');
+  btn.classList.toggle('muted', isMuted);
+  btn.title = isMuted ? 'Mikrofon aktivieren' : 'Mikrofon stummschalten';
+}
+window.toggleMute = toggleMute;
+
+async function startEL(){
+  setState('connecting');
+  document.getElementById('aiText').textContent = '';
+  document.getElementById('aiBox').classList.remove('has-text');
+  _twQ=''; if(_twT){clearInterval(_twT);_twT=null;}
+  elTranscript=[]; elStart=Date.now();
+  window._currentConvId=null; window._pendingClose=false;
+
+  try{
+    elMic = await navigator.mediaDevices.getUserMedia({audio:true});
+    isMuted = false;
+    document.getElementById('muteBtn').classList.add('active');
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize=128; analyser.smoothingTimeConstant=0.8;
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+    audioCtx.createMediaStreamSource(elMic).connect(analyser);
+
+    const res  = await fetch(API+'/el-session');
+    const data = await res.json();
+    if(data.error) throw new Error(data.error);
+
+    let r=0;
+    while(!window._ELConversation && r++<30) await new Promise(x=>setTimeout(x,100));
+    if(!window._ELConversation) throw new Error('SDK nicht geladen');
+
+    elConv = await window._ELConversation.startSession({
+      agentId: data.agent_id,
+
+      onConnect:()=>{
+        setState('listening');
+        fetch(API+'/create-conversation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lang})})
+          .then(r=>r.json()).then(d=>{if(d.id)window._currentConvId=d.id;}).catch(()=>{});
+      },
+
+      onDisconnect:()=>{
+        elConv=null; stopMic();
+        const dur = elStart ? Math.round((Date.now()-elStart)/1000) : 0;
+        updateConv(dur);
+        setState('idle');
+      },
+
+      onMessage:(msg)=>{
+        const {message,source} = msg;
+        const text = typeof message==='string' ? message : message?.text;
+        if(text) elTranscript.push({role:source==='ai'?'ai':'user',text});
+        if(source==='ai' && text){
+          document.getElementById('aiBox').classList.add('has-text');
+          typeWriter(text);
+          const lower = text.toLowerCase();
+          if(['bis bald','auf wiedersehen','tschüss','bye','خداحافظ','goodbye'].some(w=>lower.includes(w))){
+            window._pendingClose=true;
+            // Clear any existing close timer before setting a new one
+            if(window._closeTimer) clearTimeout(window._closeTimer);
+            window._closeTimer = setTimeout(()=>{
+              window._pendingClose=false;
+              window._closeTimer=null;
+              stopEL();
+            }, 17000);
+          }
+        }
+      },
+
+      onModeChange:({mode})=>{
+        if(mode.mode==='speaking') setState('speaking');
+        if(mode.mode==='listening'){
+          setState('listening');
+          // Show form after Bruno finishes speaking
+          if(window._showFormWhenReady){
+            window._showFormWhenReady = false;
+            if(window._showFormFallback){clearTimeout(window._showFormFallback);window._showFormFallback=null;}
+            setTimeout(()=>{ _doShowForm(); }, 500);
+          }
+          if(window._pendingClose && !window._closeTimer){
+            window._pendingClose=false;
+            setTimeout(()=>stopEL(),1500);
+          }
+        }
+      },
+
+      onError:(msg)=>{
+        if((typeof msg==='object'&&msg?.clientToolName==='show_contact_form')||(typeof msg==='string'&&msg.includes('show_contact_form'))){
+          showContactForm(); return;
+        }
+        const t = typeof msg==='string' ? msg : (msg?.message||'');
+        if(t && !t.includes('show_contact_form')) showError('Fehler: '+t);
+      },
+
+      clientTools:{
+        show_contact_form:()=>{ window.showContactForm(); return 'success'; },
+
+        get_next_available_slot:()=>{
+          return fetch(API+'/calendar/next-slot')
+            .then(r=>r.json())
+            .then(data=>{
+              if(data.available){
+                window._nextSlot={start:data.start,end:data.end};
+                return JSON.stringify({available:true,slot:data.label,start:data.start,end:data.end});
+              }
+              return JSON.stringify({available:false,message:data.message||'Keine freien Slots'});
+            })
+            .catch(e=>JSON.stringify({error:e.message}));
+        },
+
+        check_specific_slot:(params)=>{
+          return fetch(API+'/calendar/check-slot?datetime='+encodeURIComponent(params.datetime))
+            .then(r=>r.json())
+            .then(data=>{
+              if(data.available){
+                window._nextSlot={start:data.start,end:data.end};
+                return JSON.stringify({available:true,slot:data.label,start:data.start,end:data.end});
+              }
+              if(data.nearest){
+                window._nextSlot={start:data.start,end:data.end};
+                return JSON.stringify({available:false,nearest:true,slot:data.label,start:data.start,end:data.end});
+              }
+              return JSON.stringify({available:false,nearest:false,message:data.message});
+            })
+            .catch(e=>JSON.stringify({error:e.message}));
+        },
+
+        book_appointment:(params)=>{
+          const slot=window._nextSlot||{};
+          const body={
+            start:params.start||slot.start,
+            end:params.end||slot.end,
+            name:params.name||'',
+            email:params.email||'',
+            phone:params.phone||'',
+            business:params.business||'',
+            budget:params.budget||'',
+            team_size:params.team_size||''
+          };
+          return fetch(API+'/calendar/book',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify(body)
+          })
+          .then(r=>r.json())
+          .then(data=>{
+            if(data.success){window._nextSlot=null;return JSON.stringify({success:true,appointment:data.appointment});}
+            return JSON.stringify({success:false,error:data.error});
+          })
+          .catch(e=>JSON.stringify({error:e.message}));
+        }
+      }
+    });
+
+  }catch(err){
+    showError('Fehler: '+err.message);
+    stopMic(); setState('idle');
+  }
+}
+
+function stopMic(){
+  if(elMic){elMic.getTracks().forEach(t=>t.stop());elMic=null;}
+  if(audioCtx){audioCtx.close();audioCtx=null;analyser=null;}
+}
+
+async function updateConv(dur){
+  if(!elTranscript||!elTranscript.length) return;
+  try{
+    const ep = window._currentConvId ? '/update-conversation' : '/save-conversation';
+    const body = window._currentConvId
+      ? {id:window._currentConvId,transcript:elTranscript,duration_s:dur,lang}
+      : {transcript:elTranscript,duration_s:dur,lang};
+    await fetch(API+ep,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  }catch(e){}
+  window._currentConvId=null;
+}
+
+async function stopEL(){
+  if(elConv){try{await elConv.endSession();}catch{} elConv=null;}
+  stopMic(); setState('idle');
+}
+
+function typeWriter(t){
+  _twQ+=t;
+  if(_twT) return;
+  const el=document.getElementById('aiText'), box=document.getElementById('aiBox');
+  _twT=setInterval(()=>{
+    if(!_twQ){clearInterval(_twT);_twT=null;return;}
+    el.textContent+=_twQ[0]; _twQ=_twQ.slice(1);
+    box.scrollTop=box.scrollHeight;
+  },18);
+}
+
+function _doShowForm(){
+  document.getElementById('formBackdrop').classList.add('visible');
+  setTimeout(()=>{ try{document.getElementById('fEmail').focus();}catch{} }, 200);
+  // No sendUserMessage here - Bruno stays silent per prompt instructions
+}
+
+function showContactForm(){
+  // Cancel goodbye timer — user needs to fill the form first
+  if(window._closeTimer){ clearTimeout(window._closeTimer); window._closeTimer=null; }
+  window._pendingClose = false;
+
+  // Start 2-minute form timeout
+  if(window._formTimer) clearTimeout(window._formTimer);
+  window._formTimer = setTimeout(()=>{
+    window._formTimer = null;
+    if(document.getElementById('formBackdrop').classList.contains('visible')){
+      hideContactForm();
+      if(elConv){
+        try{
+          elConv.sendUserMessage('SYSTEM: The user did not fill the contact form within 2 minutes. Say a short friendly goodbye like "Kein Problem, du kannst uns jederzeit wieder kontaktieren! Bis bald!" and end the conversation.');
+        }catch{}
+      }
+    }
+  }, 2 * 60 * 1000);
+
+  // Wait until Bruno is in listening mode, with fallback after 3s
+  window._showFormWhenReady = true;
+  if(window._showFormFallback) clearTimeout(window._showFormFallback);
+  window._showFormFallback = setTimeout(()=>{
+    if(window._showFormWhenReady){
+      window._showFormWhenReady = false;
+      _doShowForm();
+    }
+  }, 3000);
+}
+function hideContactForm(){
+  document.getElementById('formBackdrop').classList.remove('visible');
+  document.getElementById('fEmail').value='';
+  document.getElementById('fPhone').value='';
+  ['fEmail','fPhone'].forEach(id=>document.getElementById(id).classList.remove('error'));
+}
+async function submitForm(){
+  const eEl=document.getElementById('fEmail'), pEl=document.getElementById('fPhone');
+  const email=eEl.value.trim(), phone=pEl.value.trim();
+  const ok=/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/.test(email);
+  ['fEmail','fPhone'].forEach(id=>document.getElementById(id).classList.remove('error'));
+  if(!email&&!phone){eEl.classList.add('error');pEl.classList.add('error');return;}
+  if(email&&!ok){eEl.classList.add('error');return;}
+  // Cancel 2-min form timeout
+  if(window._formTimer){clearTimeout(window._formTimer);window._formTimer=null;}
+  hideContactForm();
+
+  // Send to Bruno FIRST before any other async calls
+  if(elConv){
+    try{
+      const info=[email?`Email: ${email}`:'',phone?`Phone: ${phone}`:''].filter(Boolean).join(', ');
+      await elConv.sendUserMessage(`Form submitted. Contact info: ${info}. Now call book_appointment with the confirmed slot (start and end from window._nextSlot) and the name from earlier in the conversation, plus this email and phone. After success, confirm the appointment and say goodbye.`);
+    }catch{}
+  }
+
+  // Save to DB in background (non-blocking)
+  (async()=>{
+    try{await fetch(API+'/webhook/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,phone,notes:'widget form'})});}catch{}
+    try{
+      let cid=window._currentConvId;
+      if(!cid) cid=(await fetch(API+'/latest-conversation').then(r=>r.json())).id;
+      if(cid) await fetch(API+'/update-contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:cid,email,phone})});
+    }catch{}
+  })();
+}
+window.showContactForm=showContactForm;
+window.hideContactForm=hideContactForm;
+window.submitForm=submitForm;
+
+// Visualizer
+const canvas=document.getElementById('visualizer');
+const ctx=canvas.getContext('2d');
+let phase=0;
+function resize(){const s=canvas.parentElement.offsetWidth+60;canvas.width=s;canvas.height=s;}
+resize();
+(function draw(){
+  requestAnimationFrame(draw); resize();
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const cx=canvas.width/2,cy=canvas.height/2,br=canvas.width*.27;
+  if(analyser&&state==='listening') analyser.getByteFrequencyData(dataArray);
+  phase+=.02;
+  for(let i=0;i<56;i++){
+    const ang=(i/56)*Math.PI*2-Math.PI/2;
+    let amp;
+    if(state==='listening'&&analyser) amp=dataArray[Math.floor(i/56*dataArray.length)]/255;
+    else if(state==='speaking') amp=.1+Math.abs(Math.sin(phase*3+i*.4))*.22;
+    else if(state==='connecting') amp=.05+Math.abs(Math.sin(phase*2+i*.15))*.08;
+    else amp=.02+Math.abs(Math.sin(phase+i*.22))*.05;
+    const r1=br+3,r2=r1+br*amp*.5+2;
+    ctx.beginPath();
+    ctx.moveTo(cx+Math.cos(ang)*r1,cy+Math.sin(ang)*r1);
+    ctx.lineTo(cx+Math.cos(ang)*r2,cy+Math.sin(ang)*r2);
+    ctx.lineWidth=state==='idle'?1.2:1.8;
+    ctx.strokeStyle=state==='listening'
+      ?`rgba(168,85,247,${.45+amp*.5})`
+      :state==='speaking'
+      ?`rgba(124,58,237,${.45+amp*.5})`
+      :`rgba(168,85,247,${state==='idle'?.15:.3})`;
+    ctx.lineCap='round';ctx.stroke();
+  }
+})();
+</script>
+</body>
+</html>
